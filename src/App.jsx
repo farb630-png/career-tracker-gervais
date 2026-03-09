@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { supabase } from "./supabase";
 
-// ─── Persistence helpers ───────────────────────────────────────────────────
+// ─── Persistence helpers (localStorage cache) ──────────────────────────────
 const STORAGE_KEY = "bryan_career_tracker_v1";
 
 function loadState() {
@@ -261,36 +262,121 @@ const TABS = [
   { id: "progress",  label: "Progress"   },
 ];
 
+// ─── Default state factories ───────────────────────────────────────────────
+function defaultWeekData() {
+  const d = {};
+  WEEKS.forEach(w => { d[w.week] = { completed: [], reflection: "", rating: 0 }; });
+  return d;
+}
+function defaultHabitRatings() {
+  const r = {};
+  GOLDSMITH_HABITS.forEach(h => (r[h] = 0));
+  return r;
+}
+
 // ─── Component ─────────────────────────────────────────────────────────────
 export default function CareerGrowthTracker() {
   const persisted = loadState();
 
+  // ── Auth state ─────────────────────────────────────────────────────────
+  const [session,      setSession]      = useState(null);
+  const [authLoading,  setAuthLoading]  = useState(true);
+
+  // ── App state ──────────────────────────────────────────────────────────
   const [activeView,   setActiveView]   = useState(persisted?.activeView   ?? "dashboard");
   const [currentWeek,  setCurrentWeek]  = useState(persisted?.currentWeek  ?? 1);
-  const [weekData,     setWeekData]     = useState(() => {
-    if (persisted?.weekData) return persisted.weekData;
-    const saved = {};
-    WEEKS.forEach(w => { saved[w.week] = { completed: [], reflection: "", rating: 0 }; });
-    return saved;
-  });
-  const [habitRatings, setHabitRatings] = useState(() => {
-    if (persisted?.habitRatings) return persisted.habitRatings;
-    const r = {};
-    GOLDSMITH_HABITS.forEach(h => (r[h] = 0));
-    return r;
-  });
-  const [checkinWeek,    setCheckinWeek]    = useState(persisted?.checkinWeek ?? null);
-  const [savedIndicator, setSavedIndicator] = useState(false);
+  const [weekData,     setWeekData]     = useState(() => persisted?.weekData    ?? defaultWeekData());
+  const [habitRatings, setHabitRatings] = useState(() => persisted?.habitRatings ?? defaultHabitRatings());
+  const [checkinWeek,  setCheckinWeek]  = useState(persisted?.checkinWeek ?? null);
 
-  // Auto-save
+  // ── Sync indicator ─────────────────────────────────────────────────────
+  const [syncStatus, setSyncStatus] = useState("idle"); // "idle" | "syncing" | "synced" | "error"
+  const syncTimer = useRef(null);
+  const saveTimer = useRef(null);
+
+  // ── Auth listener — runs once on mount ────────────────────────────────
+  useEffect(() => {
+    if (!supabase) {
+      // No credentials configured — skip auth, run in localStorage-only mode
+      setAuthLoading(false);
+      return;
+    }
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthLoading(false);
+      if (session) loadFromSupabase(session.user.id);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) loadFromSupabase(session.user.id);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load progress from Supabase ───────────────────────────────────────
+  async function loadFromSupabase(userId) {
+    if (!supabase) return;
+    const { data, error } = await supabase
+      .from("user_progress")
+      .select("week_data, habit_ratings, current_week")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error || !data) return; // no row yet — keep localStorage state
+
+    setWeekData(data.week_data   ?? defaultWeekData());
+    setHabitRatings(data.habit_ratings ?? defaultHabitRatings());
+    setCurrentWeek(data.current_week   ?? 1);
+  }
+
+  // ── Debounced upsert to Supabase ──────────────────────────────────────
+  function scheduleSave(nextWeekData, nextHabitRatings, nextCurrentWeek) {
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      if (!supabase || !session) return;
+      setSyncStatus("syncing");
+      const { error } = await supabase.from("user_progress").upsert({
+        user_id:       session.user.id,
+        week_data:     nextWeekData,
+        habit_ratings: nextHabitRatings,
+        current_week:  nextCurrentWeek,
+        updated_at:    new Date().toISOString(),
+      });
+      setSyncStatus(error ? "error" : "synced");
+      clearTimeout(syncTimer.current);
+      syncTimer.current = setTimeout(() => setSyncStatus("idle"), 2000);
+    }, 600);
+  }
+
+  // ── localStorage cache + Supabase sync on state change ────────────────
   useEffect(() => {
     saveState({ activeView, currentWeek, weekData, habitRatings, checkinWeek });
-    setSavedIndicator(true);
-    const t = setTimeout(() => setSavedIndicator(false), 1500);
-    return () => clearTimeout(t);
-  }, [activeView, currentWeek, weekData, habitRatings, checkinWeek]);
+    scheduleSave(weekData, habitRatings, currentWeek);
+  }, [currentWeek, weekData, habitRatings]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
+  // ── Sign in / out ─────────────────────────────────────────────────────
+  function signInWithGoogle() {
+    supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+  }
+
+  function signOut() {
+    supabase.auth.signOut();
+    setSession(null);
+    setWeekData(defaultWeekData());
+    setHabitRatings(defaultHabitRatings());
+    setCurrentWeek(1);
+    setCheckinWeek(null);
+    setActiveView("dashboard");
+    localStorage.removeItem(STORAGE_KEY);
+  }
+
+  // ── App helpers ───────────────────────────────────────────────────────────
   const toggleAction = (week, action) => {
     setWeekData(prev => {
       const existing = prev[week].completed || [];
@@ -329,6 +415,67 @@ export default function CareerGrowthTracker() {
 
   const weekObj = WEEKS.find(w => w.week === currentWeek);
 
+  // ── Auth loading screen ───────────────────────────────────────────────────
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: "100vh", background: T.fill1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: "32px", height: "32px", borderRadius: "50%", border: `3px solid ${T.fill2}`, borderTopColor: T.accent, animation: "spin 0.8s linear infinite" }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  // ── Sign-in screen (only when Supabase is configured) ────────────────────
+  if (supabase && !session) {
+    return (
+      <div style={{ minHeight: "100vh", background: T.fill1, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.fontBody }}>
+        <div style={{ ...card({ padding: "48px 40px", textAlign: "center", maxWidth: "400px", width: "100%" }) }}>
+          {/* Gradient accent bar */}
+          <div style={{ height: "4px", background: "linear-gradient(90deg, #1A4ED8, #7C3AED)", borderRadius: "16px 16px 0 0", marginBottom: "32px", marginLeft: "-40px", marginRight: "-40px", marginTop: "-48px" }} />
+
+          <div style={{ fontFamily: T.fontDisplay, fontSize: "28px", color: T.ink, marginBottom: "6px" }}>
+            LeaderShift
+          </div>
+          <div style={{ fontSize: "13px", color: T.ink3, marginBottom: "8px" }}>
+            8-Week Leadership Transformation
+          </div>
+          <div style={{ fontSize: "12px", color: T.ink4, marginBottom: "32px" }}>
+            Sign in to sync your progress across all your devices
+          </div>
+
+          <button
+            onClick={signInWithGoogle}
+            style={{
+              width: "100%", padding: "13px 20px",
+              background: T.white, border: `1.5px solid ${T.separator}`,
+              borderRadius: T.radiusMd, cursor: "pointer",
+              fontFamily: T.fontBody, fontSize: "14px", fontWeight: 500,
+              color: T.ink, display: "flex", alignItems: "center",
+              justifyContent: "center", gap: "10px",
+              boxShadow: T.shadowSm, transition: "all 0.15s",
+            }}
+            onMouseOver={e => { e.currentTarget.style.boxShadow = T.shadowMd; e.currentTarget.style.borderColor = T.accent; }}
+            onMouseOut={e => { e.currentTarget.style.boxShadow = T.shadowSm; e.currentTarget.style.borderColor = T.separator; }}
+          >
+            {/* Google G logo */}
+            <svg width="18" height="18" viewBox="0 0 48 48">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+              <path fill="none" d="M0 0h48v48H0z"/>
+            </svg>
+            Continue with Google
+          </button>
+
+          <div style={{ fontSize: "11px", color: T.ink4, marginTop: "20px", lineHeight: "1.6" }}>
+            Your progress is stored securely and only accessible to you.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={{
@@ -365,15 +512,22 @@ export default function CareerGrowthTracker() {
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          {/* Sync status */}
           <span style={{
-            fontSize: "11px", fontWeight: 500,
-            color: savedIndicator ? T.green : "transparent",
-            transition: "color 0.3s",
+            fontSize: "11px", fontWeight: 500, transition: "color 0.3s",
+            color: syncStatus === "syncing" ? T.ink4
+                 : syncStatus === "synced"  ? T.green
+                 : syncStatus === "error"   ? T.red
+                 : "transparent",
           }}>
-            ✓ Saved
+            {syncStatus === "syncing" ? "Syncing…"
+           : syncStatus === "synced"  ? "✓ Synced"
+           : syncStatus === "error"   ? "⚠ Sync error"
+           : "✓ Synced"}
           </span>
 
+          {/* Progress badge */}
           <div style={card({ padding: "10px 18px", textAlign: "center" })}>
             <div style={{ fontFamily: T.fontDisplay, fontSize: "26px", color: T.accent, lineHeight: 1 }}>
               {overallProgress()}%
@@ -383,22 +537,29 @@ export default function CareerGrowthTracker() {
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              if (window.confirm("Reset ALL progress? This cannot be undone.")) {
-                localStorage.removeItem(STORAGE_KEY);
-                window.location.reload();
-              }
-            }}
-            style={{
-              fontSize: "12px", fontWeight: 500, color: T.red,
-              background: T.redLight, border: `1px solid rgba(153,27,27,0.2)`,
-              borderRadius: T.radiusMd, padding: "8px 14px", cursor: "pointer",
-              fontFamily: T.fontBody, transition: "all 0.15s",
-            }}
-          >
-            Reset Data
-          </button>
+          {/* User avatar + sign out (only when authenticated) */}
+          {session && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              {session.user.user_metadata?.avatar_url && (
+                <img
+                  src={session.user.user_metadata.avatar_url}
+                  alt="avatar"
+                  style={{ width: "28px", height: "28px", borderRadius: "50%", border: `2px solid ${T.fill2}` }}
+                />
+              )}
+              <button
+                onClick={signOut}
+                style={{
+                  fontSize: "12px", fontWeight: 500, color: T.ink3,
+                  background: T.fill1, border: `1px solid ${T.separator}`,
+                  borderRadius: T.radiusMd, padding: "7px 12px", cursor: "pointer",
+                  fontFamily: T.fontBody, transition: "all 0.15s",
+                }}
+              >
+                Sign out
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
