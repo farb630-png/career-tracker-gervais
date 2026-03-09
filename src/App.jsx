@@ -1449,8 +1449,8 @@ export default function CareerGrowthTracker() {
                 style={{
                   flex: 1, padding: "12px", fontFamily: T.fontBody,
                   fontSize: "14px", fontWeight: 600, cursor: "pointer",
-                  background: T.fill1, color: T.ink2,
-                  border: `1px solid ${T.separator}`, borderRadius: T.radiusMd,
+                  background: T.accent, color: T.white,
+                  border: "none", borderRadius: T.radiusMd,
                 }}
               >
                 Cancel
@@ -1460,8 +1460,8 @@ export default function CareerGrowthTracker() {
                 style={{
                   flex: 1, padding: "12px", fontFamily: T.fontBody,
                   fontSize: "14px", fontWeight: 600, cursor: "pointer",
-                  background: T.red, color: T.white,
-                  border: "none", borderRadius: T.radiusMd,
+                  background: T.fill1, color: T.ink2,
+                  border: `1px solid ${T.separator}`, borderRadius: T.radiusMd,
                 }}
               >
                 Reset Progress
