@@ -291,6 +291,7 @@ export default function CareerGrowthTracker() {
 
   // ── Sync indicator ─────────────────────────────────────────────────────
   const [syncStatus, setSyncStatus] = useState("idle"); // "idle" | "syncing" | "synced" | "error"
+  const [showResetModal, setShowResetModal] = useState(false);
   const syncTimer = useRef(null);
   const saveTimer = useRef(null);
 
@@ -386,6 +387,29 @@ export default function CareerGrowthTracker() {
     setCheckinWeek(null);
     setActiveView("dashboard");
     localStorage.removeItem(STORAGE_KEY);
+  }
+
+  async function resetProgress() {
+    const defaults = {
+      week_data:     defaultWeekData(),
+      habit_ratings: defaultHabitRatings(),
+      current_week:  1,
+    };
+    setWeekData(defaults.week_data);
+    setHabitRatings(defaults.habit_ratings);
+    setCurrentWeek(defaults.current_week);
+    setCheckinWeek(null);
+    localStorage.removeItem(STORAGE_KEY);
+    if (supabase && session) {
+      await supabase.from("user_progress").upsert({
+        user_id:       session.user.id,
+        week_data:     defaults.week_data,
+        habit_ratings: defaults.habit_ratings,
+        current_week:  defaults.current_week,
+        updated_at:    new Date().toISOString(),
+      });
+    }
+    setShowResetModal(false);
   }
 
   // ── App helpers ───────────────────────────────────────────────────────────
@@ -559,6 +583,17 @@ export default function CareerGrowthTracker() {
                   style={{ width: "28px", height: "28px", borderRadius: "50%", border: `2px solid ${T.fill2}` }}
                 />
               )}
+              <button
+                onClick={() => setShowResetModal(true)}
+                style={{
+                  fontSize: "12px", fontWeight: 500, color: T.red,
+                  background: T.redLight, border: `1px solid rgba(153,27,27,0.2)`,
+                  borderRadius: T.radiusMd, padding: "7px 12px", cursor: "pointer",
+                  fontFamily: T.fontBody, transition: "all 0.15s",
+                }}
+              >
+                Reset
+              </button>
               <button
                 onClick={signOut}
                 style={{
@@ -1381,6 +1416,60 @@ export default function CareerGrowthTracker() {
         )}
 
       </main>
+
+      {/* ── RESET CONFIRMATION MODAL ──────────────────────────────────── */}
+      {showResetModal && (
+        <div
+          onClick={() => setShowResetModal(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: T.white, borderRadius: T.radiusXl,
+              padding: "32px 28px", maxWidth: "380px", width: "90%",
+              boxShadow: T.shadowMd, textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: "36px", marginBottom: "12px" }}>⚠️</div>
+            <div style={{ fontFamily: T.fontDisplay, fontSize: "20px", color: T.ink, marginBottom: "10px" }}>
+              Reset all progress?
+            </div>
+            <div style={{ fontSize: "14px", color: T.ink3, lineHeight: 1.6, marginBottom: "24px" }}>
+              This will permanently delete all your week completions, habit ratings, and reflections.
+              This cannot be undone.
+            </div>
+            <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
+              <button
+                onClick={() => setShowResetModal(false)}
+                style={{
+                  flex: 1, padding: "12px", fontFamily: T.fontBody,
+                  fontSize: "14px", fontWeight: 600, cursor: "pointer",
+                  background: T.fill1, color: T.ink2,
+                  border: `1px solid ${T.separator}`, borderRadius: T.radiusMd,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={resetProgress}
+                style={{
+                  flex: 1, padding: "12px", fontFamily: T.fontBody,
+                  fontSize: "14px", fontWeight: 600, cursor: "pointer",
+                  background: T.red, color: T.white,
+                  border: "none", borderRadius: T.radiusMd,
+                }}
+              >
+                Reset Progress
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
