@@ -325,7 +325,19 @@ export default function CareerGrowthTracker() {
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (error || !data) return; // no row yet — keep localStorage state
+    if (error) return;
+
+    if (!data) {
+      // No Supabase row yet — upload current localStorage state to seed the account
+      await supabase.from("user_progress").upsert({
+        user_id:       userId,
+        week_data:     weekData,
+        habit_ratings: habitRatings,
+        current_week:  currentWeek,
+        updated_at:    new Date().toISOString(),
+      });
+      return;
+    }
 
     setWeekData(data.week_data   ?? defaultWeekData());
     setHabitRatings(data.habit_ratings ?? defaultHabitRatings());
