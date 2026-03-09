@@ -184,16 +184,45 @@ Users who signed up with email/password need a way to reset a forgotten password
 
 ---
 
+### F-10 · Profile Menu
+
+**Priority:** High
+**Effort:** S (2–3 hours)
+
+**Description:**
+Replace the standalone Reset and Sign Out buttons in the header with a unified Profile menu. Clicking the user's avatar (or a fallback icon) opens a dropdown that centralizes account actions and settings. This menu becomes the home for dark mode toggle, reset progress, sign out, and future settings.
+
+**Acceptance Criteria:**
+- Clicking the user avatar/icon in the header opens a dropdown menu
+- Clicking outside the dropdown or pressing Escape closes it
+- Menu items (initial):
+  - User name + email (display only, top of menu)
+  - Dark Mode toggle (placeholder until F-04 is built)
+  - Reset Progress (opens the existing confirmation modal)
+  - Sign Out
+- The dropdown is styled consistently with the existing design system
+- The Reset and Sign Out buttons currently in the header are removed in favor of the menu
+- Menu is accessible: keyboard-navigable, proper ARIA roles
+
+**Future items (not in scope for v1):**
+- Notification preferences
+- Data export
+- Account deletion
+- Language / locale settings
+
+---
+
 ## Implementation Order (Suggested)
 
 | # | Feature | Priority | Effort | Notes |
 |---|---------|----------|--------|-------|
 | 1 | F-01 Default Tab | High | XS | Quick win |
 | 2 | F-03 User Name in Header | High | S | Quick win |
-| 3 | F-02 Reset Progress | High | S | User safety |
-| 4 | F-05 Mobile UI | High | L | Biggest UX impact |
-| 5 | F-04 Dark Mode | Medium | M | Polish |
-| 6 | F-07 Sign In with Apple | Medium | S | Needs Apple dev account |
-| 7 | F-06 Admin Panel | Medium | L | Content flexibility |
-| 8 | F-08 Email + Password | Low | M | Broader reach |
-| 9 | F-09 Password Reset | Low | S | Depends on F-08 |
+| 3 | F-02 Reset Progress | High | S | User safety — done |
+| 4 | F-10 Profile Menu | High | S | Consolidates header actions |
+| 5 | F-05 Mobile UI | High | L | Biggest UX impact |
+| 6 | F-04 Dark Mode | Medium | M | Polish; toggle lives in F-10 menu |
+| 7 | F-07 Sign In with Apple | Medium | S | Needs Apple dev account |
+| 8 | F-06 Admin Panel | Medium | L | Content flexibility |
+| 9 | F-08 Email + Password | Low | M | Broader reach |
+| 10 | F-09 Password Reset | Low | S | Depends on F-08 |
