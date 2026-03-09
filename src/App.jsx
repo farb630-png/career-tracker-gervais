@@ -283,7 +283,7 @@ export default function CareerGrowthTracker() {
   const [authLoading,  setAuthLoading]  = useState(true);
 
   // ── App state ──────────────────────────────────────────────────────────
-  const [activeView,   setActiveView]   = useState(persisted?.activeView   ?? "dashboard");
+  const [activeView,   setActiveView]   = useState("dashboard");
   const [currentWeek,  setCurrentWeek]  = useState(persisted?.currentWeek  ?? 1);
   const [weekData,     setWeekData]     = useState(() => persisted?.weekData    ?? defaultWeekData());
   const [habitRatings, setHabitRatings] = useState(() => persisted?.habitRatings ?? defaultHabitRatings());
@@ -311,7 +311,10 @@ export default function CareerGrowthTracker() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) loadFromSupabase(session.user.id);
+      if (session) {
+        setActiveView("dashboard");
+        loadFromSupabase(session.user.id);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -366,7 +369,7 @@ export default function CareerGrowthTracker() {
 
   // ── localStorage cache + Supabase sync on state change ────────────────
   useEffect(() => {
-    saveState({ activeView, currentWeek, weekData, habitRatings, checkinWeek });
+    saveState({ currentWeek, weekData, habitRatings, checkinWeek });
     scheduleSave(weekData, habitRatings, currentWeek);
   }, [currentWeek, weekData, habitRatings]); // eslint-disable-line react-hooks/exhaustive-deps
 
